@@ -1,0 +1,193 @@
+//сервер tcp
+/*
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#pragma warning(disable: 4996)
+
+#include <iostream>
+#include <winsock2.h>
+#include <string>
+
+using namespace std;
+
+#pragma comment(lib, "ws2_32.lib")
+
+struct Patient {
+    int id;
+    char name[50];
+    int age;
+    char diagnosis[100];
+    double temperature;
+};
+
+void printPatient(const Patient& p) {
+    cout << "Пациент #" << p.id << endl;
+    cout << "Имя: " << p.name << endl;
+    cout << "Возраст: " << p.age << endl;
+    cout << "Диагноз: " << p.diagnosis << endl;
+    cout << "Температура: " << p.temperature << endl;
+    cout << "-----------------------------" << endl;
+}
+
+int main() {
+    setlocale(LC_ALL, "rus");
+    WSADATA wsaData;
+    SOCKET serverSocket, clientSocket;
+    sockaddr_in serverAddr, clientAddr;
+    int clientAddrSize = sizeof(clientAddr);
+
+    // Инициализация Winsock
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+    // Создание TCP-сокета
+    serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+
+    // Настройка адреса сервера
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+    serverAddr.sin_port = htons(8888);
+
+    // Привязка сокета
+    bind(serverSocket, (sockaddr*)&serverAddr, sizeof(serverAddr));
+    listen(serverSocket, 5);
+
+    cout << "Медсервер запущен. Ожидание подключения пациентов..." << endl;
+
+    while (true) {
+        // Принятие подключения
+        clientSocket = accept(serverSocket, (sockaddr*)&clientAddr, &clientAddrSize);
+        cout << "Новый пациент подключен!" << endl;
+
+        bool clientConnected = true;
+        while (clientConnected) {
+            Patient receivedPatient;
+            // Получение данных о пациенте
+            int bytesReceived = recv(clientSocket, (char*)&receivedPatient, sizeof(receivedPatient), 0);
+
+            if (bytesReceived <= 0) {
+                cout << "Пациент отключился" << endl;
+                break;
+            }
+
+            if (receivedPatient.id == -1) {
+                cout << "Пациент завершил сеанс" << endl;
+                clientConnected = false;
+                break;
+            }
+
+            cout << "Получены данные пациента:" << endl;
+            printPatient(receivedPatient);
+
+            // Медицинская обработка данных
+            if (receivedPatient.temperature >= 39 && receivedPatient.temperature < 41) {
+                strcpy(receivedPatient.diagnosis, "ГРИПП - требуется срочное лечение");
+            }
+            else if (receivedPatient.temperature >= 41) {
+                strcpy(receivedPatient.diagnosis, "Смертельная температура, немедленное мед.вмешаетльство");
+            }
+            else if (receivedPatient.temperature > 35.1&& receivedPatient.temperature < 37) {
+                strcpy(receivedPatient.diagnosis, "Здоров как бык");
+            }
+            else if (receivedPatient.temperature >= 37 && receivedPatient.temperature < 39) {
+                strcpy(receivedPatient.diagnosis, "Простуда - рекомендован покой");
+            }
+            else if (receivedPatient.temperature < 35) {
+                strcpy(receivedPatient.diagnosis, "Гипотермия - требуется срочное лечение");
+            }
+            else {
+                strcpy(receivedPatient.diagnosis, "Здоров - профилактический осмотр");
+            }
+
+            // Отправка обработанных данных
+            send(clientSocket, (char*)&receivedPatient, sizeof(receivedPatient), 0);
+            cout << "Диагноз отправлен пациенту" << endl;
+        }
+
+        closesocket(clientSocket);
+    }
+
+    closesocket(serverSocket);
+    WSACleanup();
+    return 0;
+}
+*/
+//
+// 
+// --------------------------------------
+//UDP - сервер(эхо)
+
+
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#pragma warning(disable: 4996)
+
+#include <iostream>
+#include <winsock2.h>
+#include <string>
+
+using namespace std;
+
+#pragma comment(lib, "ws2_32.lib")
+
+struct Student {
+    int id;
+    char name[50];
+    char faculty[50];
+    int course;
+    double averageGrade;
+};
+
+void printStudent(const Student& s) {
+    cout << "Студент #" << s.id << endl;
+    cout << "Имя: " << s.name << endl;
+    cout << "Факультет: " << s.faculty << endl;
+    cout << "Курс: " << s.course << endl;
+    cout << "Средний балл: " << s.averageGrade << endl;
+    cout << "-----------------------------" << endl;
+}
+
+int main() {
+    setlocale(LC_ALL, "rus");
+    WSADATA wsaData;
+    SOCKET serverSocket;
+    sockaddr_in serverAddr, clientAddr;
+    int clientAddrSize = sizeof(clientAddr);
+
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+    // Создание UDP-сокета
+    serverSocket = socket(AF_INET, SOCK_DGRAM, 0);
+
+    // Настройка адреса сервера
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+    serverAddr.sin_port = htons(9999);
+
+    bind(serverSocket, (sockaddr*)&serverAddr, sizeof(serverAddr));
+    cout << "UDP Эхо-сервер деканата запущен..." << endl;
+
+    while (true) {
+        Student receivedStudent;
+
+        // Получение данных от клиента
+        int bytesReceived = recvfrom(serverSocket, (char*)&receivedStudent, sizeof(receivedStudent), 0,
+            (sockaddr*)&clientAddr, &clientAddrSize);
+
+        if (bytesReceived > 0) {
+            cout << "Получены данные студента:" << endl;
+            printStudent(receivedStudent);
+
+            // Эхо-ответ с отметкой о получении
+            char response[100];
+            sprintf(response, "Данные студента %s получены и обработаны", receivedStudent.name);
+
+            // Отправка эхо-ответа
+            sendto(serverSocket, (char*)&receivedStudent, sizeof(receivedStudent), 0,
+                (sockaddr*)&clientAddr, clientAddrSize);
+
+            cout << "Эхо-ответ отправлен клиенту" << endl;
+        }
+    }
+
+    closesocket(serverSocket);
+    WSACleanup();
+    return 0;
+}
