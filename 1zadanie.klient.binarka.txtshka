@@ -1,0 +1,169 @@
+//1 задание клиент бинарка
+/*
+
+#include <iostream>
+#include <fstream>
+#include <windows.h>
+using namespace std;
+
+// Структура данных запроса клиента
+struct Person
+{
+    char name[25]; // имя
+    int height;    // рост
+    int weight;    // вес
+} A;
+
+int main()
+{
+    setlocale(LC_ALL, "rus");
+
+    // Абсолютные пути к файлам
+    const char* nameR = "C:/Users/Ryzen/source/repos/REQUEST.bin";
+    const char* nameA = "C:/Users/Ryzen/source/repos/ANSWER.bin";
+
+    ofstream f_REQ;
+    ifstream f_ANS;
+    long pred_size;
+    int answer;
+
+    cout << "Client is working" << endl;
+    cout << "C:/Users/Ryzen/source/repos/" << endl;
+
+    // Создаем файлы, если они не существуют
+    f_REQ.open(nameR, ios::app | ios::binary);
+    f_REQ.close();
+    f_ANS.open(nameA, ios::app | ios::binary);
+    f_ANS.close();
+
+    while (true)
+    {
+        // Передача данных от клиента серверу
+        cout << "Введите запрос: Фамилия Рост Вес" << endl;
+        cin >> A.name >> A.height >> A.weight;
+
+        cout << "Введены данные: " << A.name << " " << A.height << " " << A.weight << endl;
+
+        f_REQ.open(nameR, ios::app | ios::binary); // открытие файла REQUEST
+        f_REQ.write((char*)&A, sizeof(A)); // запись запроса в файл REQUEST
+        f_REQ.close();
+
+        // Ожидаем ответ от сервера
+        f_ANS.open(nameA, ios::binary); // открытие файла ANSWER
+        f_ANS.seekg(0, ios::end); // переход в конец файла ANSWER
+        pred_size = f_ANS.tellg();
+
+        while (pred_size >= f_ANS.tellg())
+        {
+            Sleep(100);
+            // Ждем и переходим в конец файла ANSWER
+            f_ANS.seekg(0, ios::end);
+        }
+
+        // Получение ответа от сервера
+        f_ANS.seekg(pred_size, ios::beg); // на начало нового ответа
+        f_ANS.read((char*)&answer, sizeof(answer)); // считывание ответа
+        f_ANS.close();
+
+        // Расшифровка ответа
+        switch (answer) {
+        case 0: { cout << "Недостаток веса\n"; break; }
+        case 1: { cout << "Норма веса\n"; break; }
+        case 2: { cout << "Избыток веса\n"; break; }
+        default: { cout << "Неизвестный ответ от сервера\n"; break; }
+        }
+
+        cout << "----------------------------------------" << endl;
+    }
+
+    return 0;
+}
+*/
+//1 задание - клиент (текстовый файл)
+#include <iostream>
+#include <fstream>
+#include <windows.h>
+#include <string>
+#include <sstream>
+using namespace std;
+
+// Структура данных запроса клиента
+struct Person
+{
+    string name;  // используем string вместо char[]
+    int height;   // рост
+    int weight;   // вес
+} A;
+
+int main()
+{
+    setlocale(LC_ALL, "rus");
+
+    // Абсолютные пути к текстовым файлам
+    const char* nameR = "C:/Users/Ryzen/source/repos/REQUEST.txt";
+    const char* nameA = "C:/Users/Ryzen/source/repos/ANSWER.txt";
+
+    ofstream f_REQ;
+    ifstream f_ANS;
+    long pred_size;
+    int answer;
+
+    cout << "Client is working" << endl;
+    cout << "Files location: C:/Users/Ryzen/source/repos/" << endl;
+
+    // Создаем файлы, если они не существуют
+    f_REQ.open(nameR, ios::app);
+    f_REQ.close();
+    f_ANS.open(nameA, ios::app);
+    f_ANS.close();
+
+    while (true)
+    {
+        // Передача данных от клиента серверу
+        cout << "Введите запрос: Фамилия Рост Вес" << endl;
+        cin >> A.name >> A.height >> A.weight;
+
+        cout << "Введены данные: " << A.name << " " << A.height << " " << A.weight << endl;
+
+        // Запись в текстовый файл
+        f_REQ.open(nameR, ios::app); // открытие текстового файла REQUEST
+        f_REQ << A.name << " " << A.height << " " << A.weight << endl; // запись запроса
+        f_REQ.close();
+
+        // Ожидаем ответ от сервера
+        f_ANS.open(nameA); // открытие текстового файла ANSWER
+        f_ANS.seekg(0, ios::end); // переход в конец файла ANSWER
+        pred_size = f_ANS.tellg();
+
+        while (pred_size >= f_ANS.tellg())
+        {
+            Sleep(100);
+            // Ждем и переходим в конец файла ANSWER
+            f_ANS.seekg(0, ios::end);
+        }
+
+        // Получение ответа от сервера
+        f_ANS.seekg(pred_size, ios::beg); // на начало нового ответа
+
+        // Считывание ответа из текстового файла
+        string line;
+        if (getline(f_ANS, line)) {
+            stringstream ss(line);
+            ss >> answer;
+        }
+
+        f_ANS.close();
+
+        // Расшифровка ответа
+        switch (answer) {
+        case 0: { cout << "Недостаток веса\n"; break; }
+        case 1: { cout << "Норма веса\n"; break; }
+        case 2: { cout << "Избыток веса\n"; break; }
+        default: { cout << "Неизвестный ответ от сервера\n"; break; }
+        }
+
+        cout << "----------------------------------------" << endl;
+    }
+
+    return 0;
+}
