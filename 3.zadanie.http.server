@@ -1,0 +1,81 @@
+//http сервак 3 задание
+#pragma warning(disable: 4996)
+#include <iostream>
+#include <sstream>
+#include <string>
+
+#define _WIN32_WINNT 0x501
+#include <WinSock2.h>
+#include <WS2tcpip.h>
+
+#pragma comment(lib, "Ws2_32.lib")
+#define BUF_SIZE 1024
+
+using namespace std;
+
+int main() {
+    cout << "\tHTTP Server v1.0\n";
+    for (int i = 0; i < 30; i++) cout << "=";
+    cout << "\n";
+
+    WSADATA ws;
+    if (WSAStartup(MAKEWORD(2, 2), &ws)) {
+        cout << "WSAStartup error: " << WSAGetLastError() << "\n";
+        return -1;
+    }
+
+    SOCKET listener = socket(AF_INET, SOCK_STREAM, 0);
+    if (listener == INVALID_SOCKET) {
+        cout << "Socket error: " << WSAGetLastError() << "\n";
+        WSACleanup();
+        return -1;
+    }
+
+    sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(8000);
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+
+    if (bind(listener, (sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
+        cout << "Bind error: " << WSAGetLastError() << "\n";
+        closesocket(listener);
+        WSACleanup();
+        return -1;
+    }
+
+    listen(listener, SOMAXCONN);
+    cout << "Server started at http://localhost:8000\n";
+
+    while (true) {
+        sockaddr_in clientAddr;
+        int clientSize = sizeof(clientAddr);
+        SOCKET client = accept(listener, (sockaddr*)&clientAddr, &clientSize);
+
+        char buffer[BUF_SIZE] = {};
+        int len = recv(client, buffer, BUF_SIZE, 0);
+
+        if (len > 0) {
+            buffer[len] = '\0';
+
+            stringstream html;
+            html << "<html><head><title>HTTP Server</title></head>"
+                << "<body><h1>Welcome to C++ HTTP Server</h1>"
+                << "<p>Request received:</p>"
+                << "<pre>" << buffer << "</pre>"
+                << "</body></html>";
+
+            string response = "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/html; charset=utf-8\r\n"
+                "Content-Length: " + to_string(html.str().length()) +
+                "\r\n\r\n" + html.str();
+
+            send(client, response.c_str(), response.length(), 0);
+        }
+
+        closesocket(client);
+    }
+
+    closesocket(listener);
+    WSACleanup();
+    return 0;
+}
