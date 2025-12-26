@@ -1,114 +1,179 @@
-#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#include <iostream>
+#include <string>
+#include <thread>
+#include <atomic>
 #include <winsock2.h>
 #include <windows.h>
-#include <string>
-#include <iostream>
-
+ 
 #pragma comment(lib, "ws2_32.lib")
+#pragma warning(disable: 4996)
+ 
+#define SERVER_IP "127.0.0.1"
+#define SERVER_PORT 12345
+#define BUFFER_SIZE 2048
+ 
 using namespace std;
-
-SOCKET ServerSocket;
-enum MessageType { MSG_REGULAR, MSG_PRIVATE, MSG_SYSTEM };
-
-DWORD WINAPI MessageReceiver(LPVOID socketData) {
-    SOCKET connection = *(SOCKET*)socketData;
-
-    while (true) {
-        MessageType msgType;
-        if (recv(connection, (char*)&msgType, sizeof(MessageType), NULL) <= 0) {
-            cout << "\n[!] Connection lost" << endl;
-            break;
-        }
-
-        if (msgType == MSG_REGULAR) {
-            int msgLen;
-            recv(connection, (char*)&msgLen, sizeof(int), NULL);
-
-            char* msgBuf = new char[msgLen + 1];
-            msgBuf[msgLen] = 0;
-            recv(connection, msgBuf, msgLen, NULL);
-
-            string message = msgBuf;
-
-            if (message.find("[PRIVATE") != string::npos) {
-                cout << "\n[PRIVATE] " << message << endl;
-            }
-            else if (message.find("->") == 0) {
-                cout << "\n[INFO] " << message << endl;
-            }
-            else {
-                cout << "\n" << message << endl;
-            }
-
-            cout << "> ";
-            delete[] msgBuf;
-        }
-    }
-
-    return 0;
+ 
+atomic<bool> is_connected(true);
+SOCKET client_socket;
+ 
+// Типы сообщений
+enum MessageType {
+    MSG_LOGIN,
+    MSG_LOGOUT,
+    MSG_PUBLIC,
+    MSG_PRIVATE,
+    MSG_SYSTEM,
+    MSG_USERLIST
+};
+ 
+struct ChatMessage {
+    MessageType type;
+    char from[32];
+    char to[32];
+    char message[BUFFER_SIZE];
+};
+ 
+// Функция для форматированного вывода
+void PrintMessage(const ChatMessage& msg) {
+    string sender = msg.from;
+    string message = msg.message;
+ 
+    if (msg.type == MSG_SYSTEM) {
+        cout << "[СИСТЕМА] " << message << endl;
+    }
+    else if (msg.type == MSG_PRIVATE) {
+        cout << "[ЛИЧНО от " << sender << "] " << message << endl;
+    }
+    else if (msg.type == MSG_PUBLIC) {
+        if (sender != "SERVER") {
+            cout << "[" << sender << "] " << message << endl;
+        }
+    }
 }
-
+ 
+// Поток для получения сообщений
+DWORD WINAPI ReceiveThread(LPVOID) {
+    while (is_connected) {
+        ChatMessage msg;
+        int bytes_received = recv(client_socket, (char*)&msg, sizeof(msg), 0);
+ 
+        if (bytes_received <= 0) {
+            if (is_connected) {
+                cout << "\nСоединение с сервером разорвано" << endl;
+                is_connected = false;
+            }
+            break;
+        }
+ 
+        PrintMessage(msg);
+        cout << "> ";
+        cout.flush();
+    }
+    return 0;
+}
+ 
 int main() {
-    WSAData wsaData;
-    WSAStartup(MAKEWORD(2, 1), &wsaData);
-
-    SOCKADDR_IN serverAddr;
-    serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    serverAddr.sin_port = htons(8888);
-    serverAddr.sin_family = AF_INET;
-
-    ServerSocket = socket(AF_INET, SOCK_STREAM, NULL);
-
-    cout << "================================" << endl;
-    cout << "     CHAT CLIENT v2.0" << endl;
-    cout << "     Connecting to server..." << endl;
-    cout << "================================" << endl;
-
-    if (connect(ServerSocket, (SOCKADDR*)&serverAddr, sizeof(serverAddr)) != 0) {
-        cout << "ERROR: Cannot connect to server" << endl;
-        return 1;
-    }
-
-    cout << "Connection established!" << endl;
-    cout << "Enter your username: ";
-
-    string username;
-    getline(cin, username);
-
-    int nameLen = username.size();
-    send(ServerSocket, (char*)&nameLen, sizeof(int), NULL);
-    send(ServerSocket, username.c_str(), nameLen, NULL);
-
-    CreateThread(NULL, NULL, MessageReceiver, &ServerSocket, NULL, NULL);
-
-    cout << "\n================================" << endl;
-    cout << "Welcome to chat, " << username << "!" << endl;
-    cout << "================================" << endl;
-    cout << "Commands:" << endl;
-    cout << "- Type message: send to everyone" << endl;
-    cout << "- @username message: private message" << endl;
-    cout << "- Type /exit to quit" << endl;
-    cout << "================================" << endl;
-
-    string userInput;
-    while (true) {
-        cout << "> ";
-        getline(cin, userInput);
-
-        if (userInput == "/exit") {
-            cout << "Goodbye!" << endl;
-            break;
-        }
-
-        int inputLen = userInput.size();
-        MessageType packetType = MSG_REGULAR;
-
-        send(ServerSocket, (char*)&packetType, sizeof(MessageType), NULL);
-        send(ServerSocket, (char*)&inputLen, sizeof(int), NULL);
-        send(ServerSocket, userInput.c_str(), inputLen, NULL);
-    }
-
-    return 0;
+     SetConsoleCP(1251);
+    SetConsoleOutputCP(1251);
+    setlocale(LC_ALL, "Russian");
+   
+ 
+    cout << "=== КЛИЕНТ ЧАТА ===\n";
+    cout << "Команды:\n";
+    cout << "  /users - список пользователей онлайн\n";
+    cout << "  /private <ник> <сообщение> - личное сообщение\n";
+    cout << "  /exit - выход из чата\n";
+    cout << string(40, '-') << endl;
+ 
+    // Инициализация Winsock
+    WSADATA wsa_data;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
+        cerr << "Ошибка инициализации Winsock" << endl;
+        return 1;
+    }
+ 
+    // Создание сокета
+    client_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (client_socket == INVALID_SOCKET) {
+        cerr << "Ошибка создания сокета" << endl;
+        WSACleanup();
+        return 1;
+    }
+ 
+    // Подключение к серверу
+    sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(SERVER_PORT);
+    server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
+ 
+    cout << "Подключение к серверу " << SERVER_IP << ":" << SERVER_PORT << "...";
+ 
+    if (connect(client_socket, (sockaddr*)&server_addr, sizeof(server_addr)) == SOCKET_ERROR) {
+        cerr << "\nОшибка подключения к серверу" << endl;
+        closesocket(client_socket);
+        WSACleanup();
+        return 1;
+    }
+ 
+    cout << " УСПЕШНО!\n" << endl;
+ 
+    // Запуск потока для получения сообщений
+    CreateThread(NULL, 0, ReceiveThread, NULL, 0, NULL);
+ 
+    // Получение запроса на ввод ника
+    ChatMessage welcome_msg;
+    recv(client_socket, (char*)&welcome_msg, sizeof(welcome_msg), 0);
+    PrintMessage(welcome_msg);
+ 
+    // Ввод ника
+    cout << "> ";
+    string nickname;
+    getline(cin, nickname);
+ 
+    // Отправка ника серверу
+    ChatMessage login_msg;
+    login_msg.type = MSG_LOGIN;
+    strcpy(login_msg.from, nickname.c_str());
+    strcpy(login_msg.message, "");
+    send(client_socket, (char*)&login_msg, sizeof(login_msg), 0);
+ 
+    // Основной цикл ввода сообщений
+    while (is_connected) {
+        cout << "> ";
+        string input;
+        getline(cin, input);
+ 
+        if (!is_connected) break;
+ 
+        if (input.empty()) {
+            continue;
+        }
+ 
+        ChatMessage msg;
+        strcpy(msg.from, nickname.c_str());
+        strcpy(msg.to, "");
+ 
+        if (input == "/exit") {
+            msg.type = MSG_PUBLIC;
+            strcpy(msg.message, "/exit");
+            send(client_socket, (char*)&msg, sizeof(msg), 0);
+..             is_connected = false;
+            break;
+        }
+        else {
+            msg.type = MSG_PUBLIC;
+            strcpy(msg.message, input.c_str());
+            send(client_socket, (char*)&msg, sizeof(msg), 0);
+        }
+    }
+ 
+    // Завершение работы
+    closesocket(client_socket);
+    WSACleanup();
+ 
+    cout << "\nКлиент завершил работу." << endl;
+    system("pause");
+ 
+    return 0;
 }
-
-
