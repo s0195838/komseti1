@@ -1,148 +1,319 @@
 #include <iostream>
-#include <fstream>
-#include <experimental/filesystem>
-#include <thread>
-#include <chrono>
 #include <string>
-#include <iomanip>
-
-namespace fs = std::experimental::filesystem;  // Изменено здесь
-
-static const std::string kSharedDir = "calorie_shared";
-static const std::string kInputFile = kSharedDir + "/user_data.txt";
-static const std::string kOutputFile = kSharedDir + "/calorie_result.txt";
-
-void ensure_shared_dir() {
-    if (!fs::exists(kSharedDir)) {
-        fs::create_directories(kSharedDir);
-    }
+#include <vector>
+#include <algorithm>
+#include <mutex>
+#include <winsock2.h>
+#include <windows.h>
+ 
+#pragma comment(lib, "ws2_32.lib")
+#pragma warning(disable: 4996)
+ 
+#define PORT 12345
+#define MAX_CLIENTS 100
+#define BUFFER_SIZE 2048
+ 
+using namespace std;
+ 
+mutex clients_mutex;
+ 
+struct Client {
+    SOCKET socket;
+    string nickname;
+    sockaddr_in addr;
+};
+ 
+vector<Client> clients;
+ 
+// Типы сообщений
+enum MessageType {
+    MSG_LOGIN,
+    MSG_LOGOUT,
+    MSG_PUBLIC,
+    MSG_PRIVATE,
+    MSG_SYSTEM,
+    MSG_USERLIST
+};
+ 
+struct ChatMessage {
+    MessageType type;
+    char from[32];
+    char to[32];
+    char message[BUFFER_SIZE];
+};
+ 
+// Отправка сообщения клиенту
+bool SendToClient(SOCKET client_socket, const ChatMessage& msg) {
+    return send(client_socket, (char*)&msg, sizeof(msg), 0) > 0;
 }
-
-double calculate_daily_calories(int age, double weight_kg, double height_cm,
-    char gender, double activity_level) {
-    double bmr; 
-
-    if (gender == 'M' || gender == 'm') {
-        bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age + 5;
-    }
-    else {
-        bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age - 161;
-    }
-
-    return bmr * activity_level;
+ 
+// Отправка сообщения всем клиентам, кроме указанного
+void BroadcastMessage(const ChatMessage& msg, SOCKET exclude_socket = INVALID_SOCKET) {
+    lock_guard<mutex> lock(clients_mutex);
+ 
+    for (const auto& client : clients) {
+        if (client.socket != exclude_socket) {
+            SendToClient(client.socket, msg);
+        }
+    }
 }
-
-std::string get_activity_level_description(double level) {
-    if (level <= 1.2) return "Sedentary (little or no exercise)";
-    if (level <= 1.375) return "Lightly active (1-3 days/week)";
-    if (level <= 1.55) return "Moderately active (3-5 days/week)";
-    if (level <= 1.725) return "Very active (6-7 days/week)";
-    return "Extremely active (physical job & daily exercise)";
+ 
+// Отправка системного сообщения
+void SendSystemMessage(SOCKET client_socket, const string& text) {
+    ChatMessage msg;
+    msg.type = MSG_SYSTEM;
+    strcpy(msg.from, "SERVER");
+    strcpy(msg.message, text.c_str());
+    SendToClient(client_socket, msg);
 }
-
-bool read_user_data(int& age, double& weight_kg, double& height_cm,
-    char& gender, double& activity_level) {
-    std::ifstream in(kInputFile);
-    if (!in) return false;
-
-    std::string gender_str;
-    if (in >> age >> weight_kg >> height_cm >> gender_str >> activity_level) {
-        gender = gender_str[0];
-        return true;
-    }
-    return false;
+ 
+// Отправка списка пользователей
+void SendUserList(SOCKET client_socket) {
+    lock_guard<mutex> lock(clients_mutex);
+ 
+    string user_list = "Сейчас онлайн (" + to_string(clients.size()) + "):\n";
+    for (const auto& client : clients) {
+        user_list += "• " + client.nickname + "\n";
+    }
+ 
+    SendSystemMessage(client_socket, user_list);
 }
-
-void write_calorie_result(double calories) {
-    std::ofstream out(kOutputFile, std::ios::trunc);
-    if (!out) {
-        std::cerr << "[server] Cannot open " << kOutputFile << " for writing.\n";
-        return;
-    }
-
-    std::ifstream in(kInputFile);
-    int age;
-    double weight_kg, height_cm, activity_level;
-    std::string gender_str;
-    char gender;
-
-    if (in >> age >> weight_kg >> height_cm >> gender_str >> activity_level) {
-        gender = gender_str[0];
-        out << std::fixed << std::setprecision(0)
-            << "=== DAILY CALORIE NEEDS CALCULATION ===\n"
-            << "Age: " << age << " years\n"
-            << "Weight: " << std::setprecision(1) << weight_kg << " kg\n"
-            << "Height: " << height_cm << " cm\n"
-            << "Gender: " << ((gender == 'M' || gender == 'm') ? "Male" : "Female") << "\n"
-            << "Activity Level: " << get_activity_level_description(activity_level) << "\n"
-            << "Activity Factor: " << std::setprecision(2) << activity_level << "\n\n"
-            << "RESULT:\n"
-            << "Daily Maintenance Calories: " << std::setprecision(0) << calories << " kcal\n"
-            << "For Weight Loss: " << calories * 0.85 << " kcal/day\n"
-            << "For Weight Gain: " << calories * 1.15 << " kcal/day\n"
-            << "=======================================";
-    }
-
-    out.flush();
-    std::cout << "[server] Wrote calorie calculation to " << kOutputFile << "\n";
+ 
+// Поиск клиента по нику
+SOCKET FindClientByNickname(const string& nickname) {
+    lock_guard<mutex> lock(clients_mutex);
+ 
+    for (const auto& client : clients) {
+        if (client.nickname == nickname) {
+            return client.socket;
+        }
+    }
+    return INVALID_SOCKET;
 }
-
+ 
+// Проверка уникальности ника
+bool IsNicknameUnique(const string& nickname) {
+    lock_guard<mutex> lock(clients_mutex);
+ 
+    for (const auto& client : clients) {
+        if (client.nickname == nickname) {
+            return false;
+        }
+    }
+    return true;
+}
+ 
+// Обработчик клиента
+DWORD WINAPI ClientHandler(LPVOID lpParam) {
+    SOCKET client_socket = *(SOCKET*)lpParam;
+    Client client_info;
+    client_info.socket = client_socket;
+ 
+    // Получение адреса клиента
+    sockaddr_in client_addr;
+    int addr_len = sizeof(client_addr);
+    getpeername(client_socket, (sockaddr*)&client_addr, &addr_len);
+    client_info.addr = client_addr;
+ 
+    // Запрос ника
+    SendSystemMessage(client_socket, "Введите ваш никнейм: ");
+ 
+    ChatMessage login_msg;
+    int bytes_received = recv(client_socket, (char*)&login_msg, sizeof(login_msg), 0);
+ 
+    if (bytes_received <= 0) {
+        closesocket(client_socket);
+        return 0;
+    }
+ 
+    string nickname = login_msg.from;
+ 
+    // Проверка ника
+    if (nickname.empty() || nickname.length() > 31) {
+        SendSystemMessage(client_socket, "Некорректный никнейм. Соединение закрыто.");
+        closesocket(client_socket);
+        return 0;
+    }
+ 
+    if (!IsNicknameUnique(nickname)) {
+        SendSystemMessage(client_socket, "Этот никнейм уже занят. Соединение закрыто.");
+        closesocket(client_socket);
+        return 0;
+    }
+ 
+    client_info.nickname = nickname;
+ 
+    // Добавление клиента в список
+    {
+        lock_guard<mutex> lock(clients_mutex);
+        clients.
+push_back(client_info);
+    }
+ 
+    // Приветствие
+    SendSystemMessage(client_socket, "Добро пожаловать в чат, " + nickname + "!");
+    SendUserList(client_socket);
+ 
+    // Уведомление всех о новом пользователе
+    ChatMessage join_msg;
+    join_msg.type = MSG_SYSTEM;
+    strcpy(join_msg.from, "SERVER");
+    string join_text = nickname + " присоединился к чату";
+    strcpy(join_msg.message, join_text.c_str());
+    BroadcastMessage(join_msg, client_socket);
+ 
+    cout << nickname << " подключился ("
+        << inet_ntoa(client_addr.sin_addr) << ":"
+        << ntohs(client_addr.sin_port) << ")" << endl;
+    cout << "Пользователей онлайн: " << clients.size() << endl;
+ 
+    // Основной цикл обработки сообщений
+    while (true) {
+        ChatMessage msg;
+        bytes_received = recv(client_socket, (char*)&msg, sizeof(msg), 0);
+ 
+        if (bytes_received <= 0) {
+            break; // Клиент отключился
+        }
+ 
+        string message_text = msg.message;
+ 
+        // Обработка команд
+        if (message_text == "/exit") {
+            break;
+        }
+        else if (message_text == "/users") {
+            SendUserList(client_socket);
+        }
+        else if (message_text.substr(0, 8) == "/private") {
+            // Формат: /private ник сообщение
+            size_t space1 = message_text.find(' ', 9);
+            if (space1 != string::npos) {
+                string target_nick = message_text.substr(9, space1 - 9);
+                string private_msg = message_text.substr(space1 + 1);
+ 
+                SOCKET target_socket = FindClientByNickname(target_nick);
+                if (target_socket != INVALID_SOCKET) {
+                    // Отправка приватного сообщения
+                    ChatMessage private_message;
+                    private_message.type = MSG_PRIVATE;
+                    strcpy(private_message.from, nickname.c_str());
+                    strcpy(private_message.to, target_nick.c_str());
+                    strcpy(private_message.message, private_msg.c_str());
+ 
+                    SendToClient(target_socket, private_message);
+ 
+                    // Подтверждение отправителю
+                    SendSystemMessage(client_socket, "Приватное сообщение для " + target_nick + " отправлено");
+                }
+                else {
+                    SendSystemMessage(client_socket, "Пользователь '" + target_nick + "' не найден");
+                }
+            }
+            else {
+                SendSystemMessage(client_socket, "Неверный формат: /private <ник> <сообщение>");
+            }
+        }
+        else {
+            // Публичное сообщение
+            ChatMessage public_msg;
+            public_msg.type = MSG_PUBLIC;
+            strcpy(public_msg.from, nickname.c_str());
+            strcpy(public_msg.message, message_text.c_str());
+ 
+            BroadcastMessage(public_msg, client_socket);
+        }
+    }
+ 
+    // Удаление клиента из списка
+    {
+        lock_guard<mutex> lock(clients_mutex);
+        auto it = remove_if(clients.begin(), clients.end(),
+            [client_socket](const Client& c) { return c.socket == client_socket; });
+        clients.erase(it, clients.end());
+    }
+ 
+    // Уведомление всех об уходе пользователя
+    ChatMessage leave_msg;
+    leave_msg.type = MSG_SYSTEM;
+    strcpy(leave_msg.from, "SERVER");
+    string leave_text = nickname + " покинул чат";
+    strcpy(leave_msg.message, leave_text.c_str());
+    BroadcastMessage(leave_msg);
+ 
+    cout << nickname << " отключился" << endl;
+    cout << "Пользователей онлайн: " << clients.size() << endl;
+ 
+    closesocket(client_socket);
+    return 0;
+}
+ 
 int main() {
-    ensure_shared_dir();
-
-    if (!fs::exists(kInputFile)) {
-        std::ofstream(kInputFile).close();
-        std::cout << "[server] Created " << kInputFile << ". Waiting for client data...\n";
-    }
-
-    bool file_exists = false;
-    
-    std::cout << "[server] Calorie Calculator Server Started\n";
-    std::cout << "[server] Monitoring " << kInputFile << " for changes...\n";
-
-    while (true) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-
-        // Простая проверка изменения файла по размеру и времени
-        if (fs::exists(kInputFile)) {
-            auto size = fs::file_size(kInputFile);
-            auto current_time = std::chrono::system_clock::now();
-            static auto last_size = size;
-            static auto last_modified = fs::last_write_time(kInputFile);
-            
-            try {
-                auto current_modified = fs::last_write_time(kInputFile);
-                
-                if (!file_exists || current_modified != last_modified || size != last_size) {
-                    file_exists = true;
-                    last_modified = current_modified;
-                    last_size = size;
-                    
-                    int age;
-                    double weight_kg, height_cm, activity_level;
-                    char gender;
-
-                    if (!read_user_data(age, weight_kg, height_cm, gender, activity_level)) {
-                        std::cerr << "[server] Error reading data. Expected: <age> <weight_kg> <height_cm> <gender(M/F)> <activity_factor>\n";
-                        continue;
-                    }
-
-                    if (age <= 0 || age > 120 || weight_kg <= 0 || weight_kg > 300 ||
-                        height_cm <= 0 || height_cm > 250 ||
-                        (gender != 'M' && gender != 'm' && gender != 'F' && gender != 'f') ||
-                        activity_level < 1.0 || activity_level > 2.5) {
-                        std::cerr << "[server] Invalid values in user_data.txt\n";
-                        continue;
-                    }
-
-                    double calories = calculate_daily_calories(age, weight_kg, height_cm, gender, activity_level);
-                    write_calorie_result(calories);
-                }
-            } catch (const std::exception& e) {
-                std::cerr << "[server] Error: " << e.what() << "\n";
-            }
-        } else {
-            file_exists = false;
-        }
-    }
+    SetConsoleCP(1251);
+    SetConsoleOutputCP(1251);
+    setlocale(LC_ALL, "Russian");
+    cout << "=== СЕРВЕР ЧАТА ===\n";
+    cout << "Порт: " << PORT << endl;
+ 
+    // Инициализация Winsock
+    WSADATA wsa_data;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
+        cerr << "Ошибка инициализации Winsock" << endl;
+        return 1;
+    }
+ 
+    // Создание сокета
+    SOCKET server_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_socket == INVALID_SOCKET) {
+        cerr << "Ошибка создания сокета" << endl;
+        WSACleanup();
+        return 1;
+    }
+ 
+    // Настройка адреса
+    sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(PORT);
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+ 
+    // Привязка сокета
+    if (bind(server_socket, (sockaddr*)&server_addr, sizeof(server_addr)) == SOCKET_ERROR) {
+        cerr << "Ошибка привязки сокета" << endl;
+        closesocket(server_socket);
+        WSACleanup();
+        return 1;
+    }
+ 
+    // Прослушивание
+    if (listen(server_socket, MAX_CLIENTS) == SOCKET_ERROR) {
+        cerr << "Ошибка listen" << endl;
+        closesocket(server_socket);
+        WSACleanup();
+        return 1;
+    }
+ 
+    cout << "Сервер запущен. Ожидание подключений...\n" << endl;
+ 
+    // Основной цикл сервера
+    while (true) {
+        sockaddr_in client_addr;
+        int client_addr_size = sizeof(client_addr);
+ 
+        SOCKET client_socket = accept(server_socket, (sockaddr*)&client_addr, &client_addr_size);
+        if (client_socket == INVALID_SOCKET) {
+            cerr << "Ошибка accept" << endl;
+            continue;
+        }
+ 
+        // Создание потока для клиента
+        CreateThread(NULL, 0, ClientHandler, &client_socket, 0, NULL);
+    }
+ 
+    closesocket(server_socket);
+    WSACleanup();
+    return 0;
 }
+ 
+ 
+--
+Сервер
