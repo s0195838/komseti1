@@ -1,81 +1,448 @@
-//http сервак 3 задание
-#pragma warning(disable: 4996)
 #include <iostream>
-#include <sstream>
 #include <string>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <thread>
+#include <chrono>
+#include <iomanip>
+#include <sstream>
+#include <locale.h>
 
-#define _WIN32_WINNT 0x501
-#include <WinSock2.h>
-#include <WS2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
 
-#pragma comment(lib, "Ws2_32.lib")
-#define BUF_SIZE 1024
+class HttpServer {
+private:
+	SOCKET serverSocket;
+	bool running;
+	int port;
 
-using namespace std;
+	void handleClient(SOCKET clientSocket) {
+		char buffer[4096];
+		int bytesReceived = recv(clientSocket, buffer, sizeof(buffer) - 1, 0);
+
+		if (bytesReceived > 0) {
+			buffer[bytesReceived] = '\0';
+			std::cout << "Получен запрос:\n" << buffer << "\n";
+
+			// Формирование HTTP-ответа с английским текстом
+                        // Формирование HTTP-ответа с английским текстом
+            std::string response =
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/html; charset=UTF-8\r\n"
+                "Connection: close\r\n"
+                "\r\n"
+                "<!DOCTYPE html>\n"
+                "<html lang=\"en\">\n"
+                "<head>\n"
+                "    <meta charset=\"UTF-8\">\n"
+                "    <title>C++ HTTP Server</title>\n"
+                "    <style>\n"
+                "        body {\n"
+                "            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;\n"
+                "            margin: 0;\n"
+                "            padding: 20px;\n"
+                "            background-color: #f5f5f5;\n"
+                "            line-height: 1.6;\n"
+                "        }\n"
+                "        \n"
+                "        .container {\n"
+                "            max-width: 800px;\n"
+                "            margin: 0 auto;\n"
+                "            background: white;\n"
+                "            padding: 30px;\n"
+                "            border-radius: 10px;\n"
+                "            box-shadow: 0 2px 10px rgba(0,0,0,0.1);\n"
+                "        }\n"
+                "        \n"
+                "        h1 {\n"
+                "            color: #2c3e50;\n"
+                "            text-align: center;\n"
+                "            margin-bottom: 30px;\n"
+                "            padding-bottom: 15px;\n"
+                "            border-bottom: 2px solid #3498db;\n"
+                "        }\n"
+                "        \n"
+                "        .status {\n"
+                "            background: #e8f4fc;\n"
+                "            padding: 15px;\n"
+                "            border-radius: 5px;\n"
+                "            margin: 20px 0;\n"
+                "            border-left: 4px solid #3498db;\n"
+                "        }\n"
+                "        \n"
+                "        .info-box {\n"
+                "            background: #f8f9fa;\n"
+                "            padding: 20px;\n"
+                "            border-radius: 5px;\n"
+                "            margin: 20px 0;\n"
+                "        }\n"
+                "        \n"
+                "        .info-row {\n"
+                "            display: flex;\n"
+                "            justify-content: space-between;\n"
+                "            padding: 8px 0;\n"
+                "            border-bottom: 1px solid #eee;\n"
+                "        }\n"
+                "        \n"
+                "        .info-row:last-child {\n"
+                "            border-bottom: none;\n"
+                "        }\n"
+                "        \n"
+                "        .label {\n"
+                "            color: #666;\n"
+                "            font-weight: 500;\n"
+                "        }\n"
+                "        \n"
+                "        .value {\n"
+                "            font-weight: 600;\n"
+                "            color: #2c3e50;\n"
+                "        }\n"
+                "        \n"
+                "        .online {\n"
+                "            color: #27ae60;\n"
+                "            font-weight: bold;\n"
+                "        }\n"
+                "        \n"
+                "        ul {\n"
+                "            padding-left: 20px;\n"
+                "            margin: 15px 0;\n"
+                "        }\n"
+                "        \n"
+                "        li {\n"
+                "            margin-bottom: 8px;\n"
+                "        }\n"
+                "        \n"
+                "        .commands {\n"
+                "            background: #2c3e50;\n"
+                "            color: white;\n"
+                "            padding: 15px;\n"
+                "            border-radius: 5px;\n"
+                "            font-family: 'Courier New', monospace;\n"
+                "            margin: 20px 0;\n"
+                "            overflow-x: auto;\n"
+                "        }\n"
+                "        \n"
+                "        .footer {\n"
+                "            text-align: center;\n"
+                "            margin-top: 30px;\n"
+                "            color: #7f8c8d;\n"
+                "            font-size: 14px;\n"
+                "            padding-top: 15px;\n"
+                "            border-top: 1px solid #eee;\n"
+                "        }\n"
+                "        \n"
+                "        h2 {\n"
+                "            color: #3498db;\n"
+                "            margin-top: 25px;\n"
+                "        }\n"
+                "        \n"
+                "        .connection-info {\n"
+                "            background: #e1f7e1;\n"
+                "            padding: 10px 15px;\n"
+                "            border-radius: 5px;\n"
+                "            margin: 10px 0;\n"
+                "        }\n"
+                "        \n"
+                "        .server-time {\n"
+                "            font-weight: bold;\n"
+                "            color: #2980b9;\n"
+                "        }\n"
+                "    </style>\n"
+                "</head>\n"
+                "<body>\n"
+                "    <div class=\"container\">\n"
+                "        <h1> C++ HTTP Server</h1>\n"
+                "        \n"
+                "        <div class=\"status\">\n"
+                "            <strong>Server Status:</strong> <span class=\"online\">Running </span><br>\n"
+                "            <strong>Current Time:</strong> <span class=\"server-time\">" + getCurrentTime() + "</span>\n"
+                "        </div>\n"
+                "        \n"
+                "        <h2> Server Information</h2>\n"
+                "        <div class=\"info-box\">\n"
+                "            <div class=\"info-row\">\n"
+                "                <span class=\"label\">Server IP Address:</span>\n"
+                "                <span class=\"value\">" + getLocalIP() + "</span>\n"
+                "            </div>\n"
+                "            <div class=\"info-row\">\n"
+                "                <span class=\"label\">Port Number:</span>\n"
+                "                <span class=\"value\">" + std::to_string(port) + "</span>\n"
+                "            </div>\n"
+                "            <div class=\"info-row\">\n"
+                "                <span class=\"label\">Protocol Version:</span>\n"
+                "                <span class=\"value\">HTTP/1.1</span>\n"
+                "            </div>\n"
+                "            <div class=\"info-row\">\n"
+                "                <span class=\"label\">Character Encoding:</span>\n"
+                "                <span class=\"value\">UTF-8</span>\n"
+                "            </div>\n"
+                "        </div>\n"
+                "        \n"
+                "        <h2> Main Features</h2>\n"
+                "        <ul>\n"
+                "            <li>HTTP GET request handlin </li>\n"
+                "            <li>Multiple concurrent connections support</li>\n"
+                "            <li>Dynamic HTML page generation</li>\n"
+                "            <li>Connection logging</li>\n"
+                "            <li>Proper connection termination</li>\n"
+                "            <li>Multi-threaded client processing</li>\n"
+                "        </ul>\n"
+                "        \n"
+                "        <h2> How to Connect</h2>\n"
+                "        <div class=\"commands\">\n"
+                "            # Using web browser:<br>\n"
+                "            http://localhost:" + std::to_string(port) + "<br>\n"
+                "            or<br>\n"
+                "            http://" + getLocalIP() + ":" + std::to_string(port) + "<br>\n"
+                "            <br>\n"
+                "            # Using command line:<br>\n"
+                "            curl http://localhost:" + std::to_string(port) + "<br>\n"
+                "            telnet localhost " + std::to_string(port) + "\n"
+                "        </div>\n"
+                "        \n"
+                "        <div class=\"connection-info\">\n"
+                "             <strong>Note:</strong> This is a demonstration HTTP server written in C++ using Winsock2 API.\n"
+                "            The server handles each connection in a separate thread.\n"
+                "        </div>\n"
+                "        \n"
+                "        <h2> Technical Specifications</h2>\n"
+                "        <div class=\"info-box\">\n"
+                "            <div class=\"info-row\">\n"
+                "                <span class=\"label\">Socket Library:</span>\n"
+                "                <span class=\"value\">Winsock2</span>\n"
+                "            </div>\n"
+                "            <div class=\"info-row\">\n"
+                "                <span class=\"label\">Socket Type:</span>\n"
+                "                <span class=\"value\">SOCK_STREAM (TCP)</span>\n"
+                "            </div>\n"
+                "            <div class=\"info-row\">\n"
+                "                <span class=\"label\">Connection Queue Size:</span>\n"
+                "                <span class=\"value\">10 clients</span>\n"
+                "            </div>\n"
+                "            <div class=\"info-row\">\n"
+                "                <span class=\"label\">Programming Language:</span>\n"
+                "                <span class=\"value\">C++ (C++17 standard)</span>\n"
+                "            </div>\n"
+                "        </div>\n"
+                "        \n"
+                "        <div class=\"footer\">\n"
+                "            © " + getCurrentYear() + " | C++ HTTP Server | Network Programming Demonstration<br>\n"
+                "            Server started: " + getCurrentTime() + "\n"
+                "        </div>\n"
+                "    </div>\n"
+                "</body>\n"
+                "</html>";
+			// Отправляем ответ
+			int bytesSent = send(clientSocket, response.c_str(), (int)response.length(), 0);
+			if (bytesSent == SOCKET_ERROR) {
+				std::cout << "Ошибка отправки ответа\n";
+			}
+			else {
+				std::cout << "Ответ отправлен (" << bytesSent << " байт)\n";
+			}
+		}
+
+		closesocket(clientSocket);
+	}
+
+	std::string getCurrentTime() {
+		auto now = std::chrono::system_clock::now();
+		auto now_time = std::chrono::system_clock::to_time_t(now);
+
+		std::stringstream ss;
+		std::tm local_tm;
+		localtime_s(&local_tm, &now_time);
+
+		ss << std::put_time(&local_tm, "%Y-%m-%d %H:%M:%S");
+		return ss.str();
+	}
+
+	std::string getCurrentYear() {
+		auto now = std::chrono::system_clock::now();
+		auto now_time = std::chrono::system_clock::to_time_t(now);
+		std::tm local_tm;
+		localtime_s(&local_tm, &now_time);
+
+		std::stringstream ss;
+		ss << std::put_time(&local_tm, "%Y");
+		return ss.str();
+	}
+
+	std::string getLocalIP() {
+		char hostname[256];
+		if (gethostname(hostname, sizeof(hostname)) == SOCKET_ERROR) {
+			return "localhost";
+		}
+
+		struct addrinfo hints = { 0 }, * result = nullptr;
+		hints.ai_family = AF_INET;
+		hints.ai_socktype = SOCK_STREAM;
+		hints.ai_protocol = IPPROTO_TCP;
+
+		if (getaddrinfo(hostname, nullptr, &hints, &result) != 0) {
+			return "localhost";
+		}
+
+		std::string ip;
+		for (struct addrinfo* ptr = result; ptr != nullptr; ptr = ptr->ai_next) {
+			if (ptr->ai_family == AF_INET) {
+				char ip_str[INET6_ADDRSTRLEN];
+				struct sockaddr_in* ipv4 = (struct sockaddr_in*)ptr->ai_addr;
+
+				if (inet_ntop(AF_INET, &(ipv4->sin_addr), ip_str, sizeof(ip_str)) != nullptr) {
+					ip = ip_str;
+					break;
+				}
+			}
+		}
+
+		freeaddrinfo(result);
+
+		if (ip.empty()) {
+			ip = "localhost";
+		}
+
+		return ip;
+	}
+
+	std::string sockaddrToString(const sockaddr_in& addr) {
+		char ip_str[INET6_ADDRSTRLEN];
+
+		if (inet_ntop(AF_INET, &(addr.sin_addr), ip_str, sizeof(ip_str)) != nullptr) {
+			return std::string(ip_str);
+		}
+
+		return "unknown";
+	}
+
+public:
+	HttpServer(int port = 6666) : port(port), running(false), serverSocket(INVALID_SOCKET) {
+		WSADATA wsaData;
+		if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+			throw std::runtime_error("Ошибка инициализации Winsock");
+		}
+	}
+
+	~HttpServer() {
+		stop();
+		WSACleanup();
+	}
+
+	void start() {
+		serverSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+		if (serverSocket == INVALID_SOCKET) {
+			throw std::runtime_error("Ошибка создания сокета");
+		}
+
+		// Разрешаем повторное использование порта
+		int yes = 1;
+		if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&yes, sizeof(yes)) == SOCKET_ERROR) {
+			closesocket(serverSocket);
+			throw std::runtime_error("Ошибка установки параметров сокета");
+		}
+
+		sockaddr_in serverAddr;
+		serverAddr.sin_family = AF_INET;
+		serverAddr.sin_addr.s_addr = INADDR_ANY;
+		serverAddr.sin_port = htons(port);
+
+		if (bind(serverSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
+			closesocket(serverSocket);
+			throw std::runtime_error("Ошибка привязки к порту " + std::to_string(port));
+		}
+
+		if (listen(serverSocket, 10) == SOCKET_ERROR) {
+			closesocket(serverSocket);
+			throw std::runtime_error("Ошибка запуска прослушивания");
+		}
+
+		running = true;
+
+		// Русский текст в консоли
+		std::cout << "=================================================\n";
+		std::cout << " HTTP Сервер успешно запущен!\n";
+		std::cout << "=================================================\n";
+		std::cout << " Порт прослушивания: " << port << std::endl;
+		std::cout << " IP адрес сервера: " << getLocalIP() << std::endl;
+		std::cout << " Откройте браузер и перейдите по адресу:\n";
+		std::cout << "   http://localhost:" << port << "\n";
+		std::cout << "   http://" << getLocalIP() << ":" << port << "\n";
+		std::cout << "=================================================\n";
+		std::cout << " Сервер готов принимать подключения...\n";
+		std::cout << "Для остановки нажмите Ctrl+C\n";
+		std::cout << "=================================================\n\n";
+
+		while (running) {
+			sockaddr_in clientAddr;
+			int clientAddrSize = sizeof(clientAddr);
+			SOCKET clientSocket = accept(serverSocket, (sockaddr*)&clientAddr, &clientAddrSize);
+
+			if (clientSocket != INVALID_SOCKET) {
+				std::string clientIP = sockaddrToString(clientAddr);
+				int clientPort = ntohs(clientAddr.sin_port);
+
+				std::cout << " Новое подключение от: " << clientIP << ":" << clientPort;
+				std::cout << " в " << getCurrentTime() << std::endl;
+
+				// Создаем поток для обработки клиента
+				std::thread(&HttpServer::handleClient, this, clientSocket).detach();
+			}
+		}
+	}
+
+	void stop() {
+		running = false;
+		if (serverSocket != INVALID_SOCKET) {
+			closesocket(serverSocket);
+			serverSocket = INVALID_SOCKET;
+			std::cout << "\n Сервер остановлен\n";
+		}
+	}
+};
 
 int main() {
-    cout << "\tHTTP Server v1.0\n";
-    for (int i = 0; i < 30; i++) cout << "=";
-    cout << "\n";
+	// Устанавливаем русскую локаль для консоли
+	setlocale(LC_ALL, "Russian");
 
-    WSADATA ws;
-    if (WSAStartup(MAKEWORD(2, 2), &ws)) {
-        cout << "WSAStartup error: " << WSAGetLastError() << "\n";
-        return -1;
-    }
+	std::cout << "=================================================\n";
+	std::cout << " HTTP СЕРВЕР НА C++\n";
+	std::cout << "=================================================\n";
+	std::cout << "Демонстрация работы HTTP протокола\n";
+	std::cout << "Сайт сервера на английском, консоль на русском\n";
+	std::cout << "=================================================\n";
 
-    SOCKET listener = socket(AF_INET, SOCK_STREAM, 0);
-    if (listener == INVALID_SOCKET) {
-        cout << "Socket error: " << WSAGetLastError() << "\n";
-        WSACleanup();
-        return -1;
-    }
+	int port;
+	std::cout << "Введите номер порта (по умолчанию 6666): ";
+	std::string input;
+	std::getline(std::cin, input);
 
-    sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(8000);
-    addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	if (input.empty()) {
+		port = 6666;
+	}
+	else {
+		try {
+			port = std::stoi(input);
+			if (port < 1 || port > 65535) {
+				std::cout << " Неверный порт. Используется порт 6666.\n";
+				port = 6666;
+			}
+		}
+		catch (...) {
+			std::cout << " Неверный ввод. Используется порт 6666.\n";
+			port = 6666;
+		}
+	}
 
-    if (bind(listener, (sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
-        cout << "Bind error: " << WSAGetLastError() << "\n";
-        closesocket(listener);
-        WSACleanup();
-        return -1;
-    }
+	try {
+		HttpServer server(port);
+		server.start();
+	}
+	catch (const std::exception& e) {
+		std::cerr << " Ошибка: " << e.what() << std::endl;
+		std::cout << "\nНажмите Enter для выхода...";
+		std::cin.get();
+		return 1;
+	}
 
-    listen(listener, SOMAXCONN);
-    cout << "Server started at http://localhost:8000\n";
-
-    while (true) {
-        sockaddr_in clientAddr;
-        int clientSize = sizeof(clientAddr);
-        SOCKET client = accept(listener, (sockaddr*)&clientAddr, &clientSize);
-
-        char buffer[BUF_SIZE] = {};
-        int len = recv(client, buffer, BUF_SIZE, 0);
-
-        if (len > 0) {
-            buffer[len] = '\0';
-
-            stringstream html;
-            html << "<html><head><title>HTTP Server</title></head>"
-                << "<body><h1>Welcome to C++ HTTP Server</h1>"
-                << "<p>Request received:</p>"
-                << "<pre>" << buffer << "</pre>"
-                << "</body></html>";
-
-            string response = "HTTP/1.1 200 OK\r\n"
-                "Content-Type: text/html; charset=utf-8\r\n"
-                "Content-Length: " + to_string(html.str().length()) +
-                "\r\n\r\n" + html.str();
-
-            send(client, response.c_str(), response.length(), 0);
-        }
-
-        closesocket(client);
-    }
-
-    closesocket(listener);
-    WSACleanup();
-    return 0;
+	return 0;
 }
