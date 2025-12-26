@@ -1,0 +1,149 @@
+
+#include <iostream>       
+#include <sstream>        
+#include <string>         
+#include <WinSock2.h>     
+#include <WS2tcpip.h>     
+#pragma comment(lib, "Ws2_32.lib")  
+using std::cerr;  
+using std::cout;  
+
+int main() {
+    
+    WSADATA wsaData;  
+    int result = WSAStartup(MAKEWORD(2, 2), &wsaData); 
+    if (result != 0) {  
+        cerr << "WSAStartup failed: " << result << "\n";  
+        return result;  
+    }
+
+    
+    struct addrinfo* addr = NULL;  
+    struct addrinfo hints;         
+    ZeroMemory(&hints, sizeof(hints));  
+    hints.ai_family = AF_INET;           
+    hints.ai_socktype = SOCK_STREAM;     
+    hints.ai_protocol = IPPROTO_TCP;    
+    hints.ai_flags = AI_PASSIVE;         
+
+    
+    result = getaddrinfo(NULL, "8000", &hints, &addr);
+    if (result != 0) {  
+        cerr << "getaddrinfo failed: " << result << "\n"; 
+        WSACleanup(); 
+        return 1;     
+    }
+
+   
+    SOCKET listen_socket = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+    if (listen_socket == INVALID_SOCKET) {  
+        cerr << "Error at socket: " << WSAGetLastError() << "\n";  // Выводим код ошибки
+        freeaddrinfo(addr);  
+        WSACleanup();       
+        return 1;            
+    }
+
+    
+    int opt = 1;  
+    setsockopt(listen_socket, SOL_SOCKET, SO_REUSEADDR, (char*)&opt, sizeof(opt));
+
+    
+    result = bind(listen_socket, addr->ai_addr, (int)addr->ai_addrlen);
+    if (result == SOCKET_ERROR) {  
+        cerr << "bind failed with error: " << WSAGetLastError() << "\n";  
+        freeaddrinfo(addr);    
+        closesocket(listen_socket);  
+        WSACleanup();          
+        return 1;              
+    }
+
+    freeaddrinfo(addr); 
+
+    
+    if (listen(listen_socket, SOMAXCONN) == SOCKET_ERROR) {  
+        cerr << "listen failed with error: " << WSAGetLastError() << "\n";  
+        closesocket(listen_socket);  
+        WSACleanup();                
+        return 1;                    
+    }
+
+    
+    cout << "Server started on http://localhost:8000\n";  
+    cout << "Press Ctrl+C to stop\n";                     
+
+    
+    const int max_client_buffer_size = 4096;  
+    char buf[max_client_buffer_size];         
+
+    // ОСНОВНОЙ ЦИКЛ СЕРВЕРА
+    while (true) {
+        
+        SOCKET client_socket = accept(listen_socket, NULL, NULL);  
+        if (client_socket == INVALID_SOCKET) {  
+            cerr << "accept failed: " << WSAGetLastError() << "\n"; 
+            continue;  
+        }
+
+        // ЧТЕНИЕ HTTP-ЗАПРОСА ОТ КЛИЕНТА
+        std::string request;  
+        while (true) {        
+            result = recv(client_socket, buf, max_client_buffer_size - 1, 0);  
+            if (result == SOCKET_ERROR) {  
+                cerr << "recv failed: " << WSAGetLastError() << "\n"; 
+                break;  
+            }
+            else if (result == 0) {  
+                break; 
+            }
+
+            buf[result] = '\0';      
+            request.append(buf);      
+
+            
+            if (request.find("\r\n\r\n") != std::string::npos) {  
+                break;  
+            }
+        }
+
+        
+        if (!request.empty()) {
+            
+            std::stringstream response_body;  
+            response_body << "<!DOCTYPE html>\n"  
+                << "<html>\n"                     
+                << "<head>\n"                     
+                << "    <title>Test C++ HTTP Server</title>\n" 
+                << "    <meta charset=\"utf-8\">\n"  
+                << "</head>\n"                    
+                << "<body>\n"                     // Открывающий тег body
+                << "    <h1>=== === Test page</h1>\n"     
+                << "    <p>This is body of the test page...</p>\n" 
+                << "    <h2>Request headers</h2>\n"  
+                << "    <pre>" << request << "</pre>\n"  
+                << "    <em><small>Test C++ Http Server</small></em>\n"  
+                << "</body>\n"                    
+                << "</html>\n";                   
+
+            
+            std::string response = "HTTP/1.1 200 OK\r\n" 
+                "Content-Type: text/html; charset=utf-8\r\n"  
+                "Content-Length: " + std::to_string(response_body.str().length()) + "\r\n"  
+                "Connection: close\r\n"  
+                "\r\n" + response_body.str();  
+
+           
+            result = send(client_socket, response.c_str(), response.length(), 0);
+            if (result == SOCKET_ERROR) {  
+                cerr << "send failed: " << WSAGetLastError() << "\n";  
+            }
+        }
+
+        
+        closesocket(client_socket);
+    }
+
+ 
+    closesocket(listen_socket);  
+    WSACleanup();                
+    return 0;                    
+}
