@@ -1,202 +1,137 @@
-//server
-#define _WINSOCK_DEPRECATED_NO_WARNINGS
-#include <winsock2.h>
-#include <windows.h>
-#include <string>
 #include <iostream>
-#pragma comment(lib, "ws2_32.lib")
-#pragma warning(disable: 4996)
+#include <fstream>
+#include <filesystem>
+#include <thread>
+#include <chrono>
+#include <string>
+#include <iomanip>
 
-using namespace std;
+namespace fs = std::filesystem;
 
-SOCKET Connections[100];
-int Counter = 0;
+static const std::string kSharedDir = "calorie_shared";
+static const std::string kInputFile = kSharedDir + "/user_data.txt";
+static const std::string kOutputFile = kSharedDir + "/calorie_result.txt";
 
-enum Packet { Pack, Test };
+void ensure_shared_dir() {
+    if (!fs::exists(kSharedDir)) {
+        fs::create_directories(kSharedDir);
+    }
+}
 
-DWORD WINAPI ServerThread(LPVOID lpParam)
-{
-    int index = *(int*)lpParam;
-    cout << "Client thread started, socket number=" << index << endl;
-    SOCKET Con = Connections[index];
 
-    Packet packettype;
+double calculate_daily_calories(int age, double weight_kg, double height_cm,
+    char gender, double activity_level) {
+    double bmr; 
 
-    while (true)
-    {
-        // Получение типа пакета
-        int bytesReceived = recv(Con, (char*)&packettype, sizeof(Packet), NULL);
+    if (gender == 'M' || gender == 'm') {
+        bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age + 5;
+    }
+    else {
+        bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age - 161;
+    }
 
-        if (bytesReceived <= 0)
-        {
-            cout << "Client " << index << " disconnected or error occurred" << endl;
-            break;
-        }
+    return bmr * activity_level;
+}
 
-        if (packettype == Pack)
-        {
-            int msg_size;
-            // Получение размера сообщения
-            recv(Con, (char*)&msg_size, sizeof(int), NULL);
+std::string get_activity_level_description(double level) {
+    if (level <= 1.2) return "Sedentary (little or no exercise)";
+    if (level <= 1.375) return "Lightly active (1-3 days/week)";
+    if (level <= 1.55) return "Moderately active (3-5 days/week)";
+    if (level <= 1.725) return "Very active (6-7 days/week)";
+    return "Extremely active (physical job & daily exercise)";
+}
 
-            // Проверка на корректный размер
-            if (msg_size <= 0 || msg_size > 4096)
-            {
-                cout << "Invalid message size from client " << index << endl;
+bool read_user_data(int& age, double& weight_kg, double& height_cm,
+    char& gender, double& activity_level) {
+    std::ifstream in(kInputFile);
+    if (!in) return false;
+
+    std::string gender_str;
+    if (in >> age >> weight_kg >> height_cm >> gender_str >> activity_level) {
+        gender = gender_str[0];
+        return true;
+    }
+    return false;
+}
+
+void write_calorie_result(double calories) {
+    std::ofstream out(kOutputFile, std::ios::trunc);
+    if (!out) {
+        std::cerr << "[server] Cannot open " << kOutputFile << " for writing.\n";
+        return;
+    }
+
+   
+    std::ifstream in(kInputFile);
+    int age;
+    double weight_kg, height_cm, activity_level;
+    std::string gender_str;
+    char gender;
+
+    if (in >> age >> weight_kg >> height_cm >> gender_str >> activity_level) {
+        gender = gender_str[0];
+        out << std::fixed << std::setprecision(0)
+            << "=== DAILY CALORIE NEEDS CALCULATION ===\n"
+            << "Age: " << age << " years\n"
+            << "Weight: " << std::setprecision(1) << weight_kg << " kg\n"
+            << "Height: " << height_cm << " cm\n"
+            << "Gender: " << ((gender == 'M' || gender == 'm') ? "Male" : "Female") << "\n"
+            << "Activity Level: " << get_activity_level_description(activity_level) << "\n"
+            << "Activity Factor: " << std::setprecision(2) << activity_level << "\n\n"
+            << "RESULT:\n"
+            << "Daily Maintenance Calories: " << std::setprecision(0) << calories << " kcal\n"
+            << "For Weight Loss: " << calories * 0.85 << " kcal/day\n"
+            << "For Weight Gain: " << calories * 1.15 << " kcal/day\n"
+            << "=======================================";
+    }
+
+    out.flush();
+    std::cout << "[server] Wrote calorie calculation to " << kOutputFile << "\n";
+}
+
+int main() {
+    ensure_shared_dir();
+
+    if (!fs::exists(kInputFile)) {
+        std::ofstream(kInputFile).close();
+        std::cout << "[server] Created " << kInputFile << ". Waiting for client data...\n";
+    }
+
+    fs::file_time_type last_time{};
+    bool have_time = false;
+
+    std::cout << "[server] Calorie Calculator Server Started\n";
+    std::cout << "[server] Monitoring " << kInputFile << " for changes...\n";
+
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+
+        if (!fs::exists(kInputFile)) continue;
+
+        auto t = fs::last_write_time(kInputFile);
+        if (!have_time || t != last_time) {
+            last_time = t;
+            have_time = true;
+
+            int age;
+            double weight_kg, height_cm, activity_level;
+            char gender;
+
+            if (!read_user_data(age, weight_kg, height_cm, gender, activity_level)) {
+                std::cerr << "[server] Error reading data. Expected: <age> <weight_kg> <height_cm> <gender(M/F)> <activity_factor>\n";
                 continue;
             }
 
-            char* msg = new char[msg_size + 1];
-            msg[msg_size] = '\0';
-
-            // Получение сообщения
-            int totalReceived = 0;
-            while (totalReceived < msg_size)
-            {
-                int bytes = recv(Con, msg + totalReceived, msg_size - totalReceived, NULL);
-                if (bytes <= 0) break;
-                totalReceived += bytes;
+            if (age <= 0 || age > 120 || weight_kg <= 0 || weight_kg > 300 ||
+                height_cm <= 0 || height_cm > 250 ||
+                (gender != 'M' && gender != 'm' && gender != 'F' && gender != 'f') ||
+                activity_level < 1.0 || activity_level > 2.5) {
+                std::cerr << "[server] Invalid values in user_data.txt\n";
+                continue;
             }
 
-            if (totalReceived == msg_size)
-            {
-                cout << "Message from client " << index << ": " << msg << endl;
-
-                // Передача сообщения другим клиентам
-                for (int i = 0; i < Counter; i++)
-                {
-                    if (i == index || Connections[i] == INVALID_SOCKET) continue;
-
-                    Packet msgtype = Pack;
-                    send(Connections[i], (char*)&msgtype, sizeof(Packet), NULL);
-                    send(Connections[i], (char*)&msg_size, sizeof(int), NULL);
-                    send(Connections[i], msg, msg_size, NULL);
-                }
-            }
-
-            delete[] msg;
-        }
-        else
-        {
-            cout << "Unrecognized packet type: " << packettype << " from client " << index << endl;
-            break;
+            double calories = calculate_daily_calories(age, weight_kg, height_cm, gender, activity_level);
+            write_calorie_result(calories);
         }
     }
-
-    closesocket(Con);
-    Connections[index] = INVALID_SOCKET;
-
-    return 0;
-}
-
-int main()
-{
-    // Инициализация Winsock
-    WSAData wsaData;
-    WORD DLLVersion = MAKEWORD(2, 1);
-    if (WSAStartup(DLLVersion, &wsaData) != 0)
-    {
-        cout << "WSAStartup failed" << endl;
-        return 1;
-    }
-
-    // Инициализация массива сокетов
-    for (int i = 0; i < 100; i++)
-        Connections[i] = INVALID_SOCKET;
-
-    // Настройка адреса сервера
-    sockaddr_in addr;
-    int sizeofaddr = sizeof(addr);
-    addr.sin_addr.s_addr = INADDR_ANY;  // Принимаем соединения на все интерфейсы
-    addr.sin_port = htons(123);
-    addr.sin_family = AF_INET;
-
-    // Создание слушающего сокета
-    SOCKET sListen = socket(AF_INET, SOCK_STREAM, NULL);
-    if (sListen == INVALID_SOCKET)
-    {
-        cout << "Socket creation failed" << endl;
-        WSACleanup();
-        return 1;
-    }
-
-    // Привязка сокета
-    if (bind(sListen, (SOCKADDR*)&addr, sizeof(addr)) == SOCKET_ERROR)
-    {
-        cout << "Bind failed" << endl;
-        closesocket(sListen);
-        WSACleanup();
-        return 1;
-    }
-
-    // Начало прослушивания
-    if (listen(sListen, SOMAXCONN) == SOCKET_ERROR)
-    {
-        cout << "Listen failed" << endl;
-        closesocket(sListen);
-        WSACleanup();
-        return 1;
-    }
-
-    cout << "Server started on port 123" << endl;
-
-    while (true)
-    {
-        // Принятие нового соединения
-        SOCKET newConnection = accept(sListen, (SOCKADDR*)&addr, &sizeofaddr);
-
-        if (newConnection == INVALID_SOCKET)
-        {
-            cout << "Accept failed" << endl;
-            continue;
-        }
-
-        cout << "Client Connected! IP: " << inet_ntoa(addr.sin_addr) << endl;
-
-        // Поиск свободного места в массиве
-        int clientIndex = -1;
-        for (int i = 0; i < 100; i++)
-        {
-            if (Connections[i] == INVALID_SOCKET)
-            {
-                clientIndex = i;
-                break;
-            }
-        }
-
-        if (clientIndex == -1)
-        {
-            cout << "Server is full!" << endl;
-            closesocket(newConnection);
-            continue;
-        }
-
-        // Сохранение сокета
-        Connections[clientIndex] = newConnection;
-
-        // Отправка приветствия
-        string msg = "Welcome to chat! Your ID: " + to_string(clientIndex);
-        int msg_size = msg.size();
-        Packet msgtype = Pack;
-
-        send(newConnection, (char*)&msgtype, sizeof(Packet), NULL);
-        send(newConnection, (char*)&msg_size, sizeof(int), NULL);
-        send(newConnection, msg.c_str(), msg_size, NULL);
-
-        cout << "Count of clients: " << Counter + 1 << endl;
-
-        // Создание потока для клиента
-        int* pIndex = new int;
-        *pIndex = clientIndex;
-        CreateThread(NULL, NULL, ServerThread, pIndex, NULL, NULL);
-
-        Counter++;
-
-        // Небольшая задержка перед обработкой следующего клиента
-        Sleep(100);
-    }
-
-    closesocket(sListen);
-    WSACleanup();
-    return 0;
 }
