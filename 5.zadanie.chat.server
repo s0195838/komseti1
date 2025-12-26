@@ -1,12 +1,12 @@
 #include <iostream>
 #include <fstream>
-#include <filesystem>
+#include <experimental/filesystem>
 #include <thread>
 #include <chrono>
 #include <string>
 #include <iomanip>
 
-namespace fs = std::filesystem;
+namespace fs = std::experimental::filesystem;  // Изменено здесь
 
 static const std::string kSharedDir = "calorie_shared";
 static const std::string kInputFile = kSharedDir + "/user_data.txt";
@@ -17,7 +17,6 @@ void ensure_shared_dir() {
         fs::create_directories(kSharedDir);
     }
 }
-
 
 double calculate_daily_calories(int age, double weight_kg, double height_cm,
     char gender, double activity_level) {
@@ -61,7 +60,6 @@ void write_calorie_result(double calories) {
         return;
     }
 
-   
     std::ifstream in(kInputFile);
     int age;
     double weight_kg, height_cm, activity_level;
@@ -97,41 +95,54 @@ int main() {
         std::cout << "[server] Created " << kInputFile << ". Waiting for client data...\n";
     }
 
-    fs::file_time_type last_time{};
-    bool have_time = false;
-
+    bool file_exists = false;
+    
     std::cout << "[server] Calorie Calculator Server Started\n";
     std::cout << "[server] Monitoring " << kInputFile << " for changes...\n";
 
     while (true) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
 
-        if (!fs::exists(kInputFile)) continue;
+        // Простая проверка изменения файла по размеру и времени
+        if (fs::exists(kInputFile)) {
+            auto size = fs::file_size(kInputFile);
+            auto current_time = std::chrono::system_clock::now();
+            static auto last_size = size;
+            static auto last_modified = fs::last_write_time(kInputFile);
+            
+            try {
+                auto current_modified = fs::last_write_time(kInputFile);
+                
+                if (!file_exists || current_modified != last_modified || size != last_size) {
+                    file_exists = true;
+                    last_modified = current_modified;
+                    last_size = size;
+                    
+                    int age;
+                    double weight_kg, height_cm, activity_level;
+                    char gender;
 
-        auto t = fs::last_write_time(kInputFile);
-        if (!have_time || t != last_time) {
-            last_time = t;
-            have_time = true;
+                    if (!read_user_data(age, weight_kg, height_cm, gender, activity_level)) {
+                        std::cerr << "[server] Error reading data. Expected: <age> <weight_kg> <height_cm> <gender(M/F)> <activity_factor>\n";
+                        continue;
+                    }
 
-            int age;
-            double weight_kg, height_cm, activity_level;
-            char gender;
+                    if (age <= 0 || age > 120 || weight_kg <= 0 || weight_kg > 300 ||
+                        height_cm <= 0 || height_cm > 250 ||
+                        (gender != 'M' && gender != 'm' && gender != 'F' && gender != 'f') ||
+                        activity_level < 1.0 || activity_level > 2.5) {
+                        std::cerr << "[server] Invalid values in user_data.txt\n";
+                        continue;
+                    }
 
-            if (!read_user_data(age, weight_kg, height_cm, gender, activity_level)) {
-                std::cerr << "[server] Error reading data. Expected: <age> <weight_kg> <height_cm> <gender(M/F)> <activity_factor>\n";
-                continue;
+                    double calories = calculate_daily_calories(age, weight_kg, height_cm, gender, activity_level);
+                    write_calorie_result(calories);
+                }
+            } catch (const std::exception& e) {
+                std::cerr << "[server] Error: " << e.what() << "\n";
             }
-
-            if (age <= 0 || age > 120 || weight_kg <= 0 || weight_kg > 300 ||
-                height_cm <= 0 || height_cm > 250 ||
-                (gender != 'M' && gender != 'm' && gender != 'F' && gender != 'f') ||
-                activity_level < 1.0 || activity_level > 2.5) {
-                std::cerr << "[server] Invalid values in user_data.txt\n";
-                continue;
-            }
-
-            double calories = calculate_daily_calories(age, weight_kg, height_cm, gender, activity_level);
-            write_calorie_result(calories);
+        } else {
+            file_exists = false;
         }
     }
 }
